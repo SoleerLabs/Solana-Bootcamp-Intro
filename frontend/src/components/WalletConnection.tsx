@@ -1,19 +1,30 @@
-
 import React, { useEffect, useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Wallet, Globe, RefreshCw } from 'lucide-react';
+import { Wallet, Globe, RefreshCw, Coins } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { 
+  getOrCreateAssociatedTokenAccount,
+  createTransferInstruction,
+  TOKEN_PROGRAM_ID,
+  getAccount,
+  getAssociatedTokenAddress
+} from '@solana/spl-token';
+
+// USDC Devnet mint address
+const USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
 
 const WalletConnection = () => {
   const { connection } = useConnection();
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, signTransaction } = useWallet();
   const [balance, setBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [usdcBalance, setUsdcBalance] = useState<number | null>(null);
+  const [loadingUsdc, setLoadingUsdc] = useState(false);
   const { toast } = useToast();
 
   const fetchBalance = async () => {
@@ -35,14 +46,44 @@ const WalletConnection = () => {
     }
   };
 
+  const fetchUSDCBalance = async () => {
+    if (!publicKey) return;
+    
+    setLoadingUsdc(true);
+    try {
+      const associatedTokenAddress = await getAssociatedTokenAddress(
+        USDC_MINT,
+        publicKey
+      );
+
+      try {
+        const accountInfo = await getAccount(connection, associatedTokenAddress);
+        setUsdcBalance(Number(accountInfo.amount) / 1_000_000);
+      } catch (error) {
+        // Account doesn't exist yet
+        setUsdcBalance(0);
+      }
+    } catch (error) {
+      console.error('Error fetching USDC balance:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch USDC balance",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingUsdc(false);
+    }
+  };
+
   useEffect(() => {
     if (connected && publicKey) {
       fetchBalance();
+      fetchUSDCBalance();
     }
-  }, [connection, publicKey, connected]);
+  }, [connection, publicKey, connected, signTransaction]);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       <Card className="bg-black/20 backdrop-blur-sm border-purple-500/20 text-white">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -114,6 +155,51 @@ const WalletConnection = () => {
             <div className="text-center py-4">
               <div className="text-4xl font-bold text-transparent bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text">
                 {balance !== null ? `${balance.toFixed(4)} SOL` : '--'}
+              </div>
+              <div className="text-sm text-gray-400 mt-2">
+                Network: Devnet
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-black/20 backdrop-blur-sm border-purple-500/20 text-white">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 justify-between">
+            <div className="flex items-center gap-2">
+              <Coins className="w-5 h-5 text-blue-400" />
+              USDC Balance
+            </div>
+            {connected && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchUSDCBalance}
+                disabled={loadingUsdc}
+                className="border-purple-500/30 text-purple-300 hover:bg-purple-600/20"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingUsdc ? 'animate-spin' : ''}`} />
+              </Button>
+            )}
+          </CardTitle>
+          <CardDescription className="text-gray-300">
+            Your current USDC balance on Devnet
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!connected ? (
+            <div className="text-center py-8 text-gray-400">
+              Connect your wallet to view balance
+            </div>
+          ) : loadingUsdc ? (
+            <div className="text-center py-8 text-gray-400">
+              Loading balance...
+            </div>
+          ) : (
+            <div className="text-center py-4">
+              <div className="text-4xl font-bold text-transparent bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text">
+                {usdcBalance !== null ? `${usdcBalance.toFixed(2)} USDC` : '--'}
               </div>
               <div className="text-sm text-gray-400 mt-2">
                 Network: Devnet
